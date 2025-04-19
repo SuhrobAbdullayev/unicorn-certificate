@@ -8,6 +8,8 @@ import com.google.zxing.qrcode.QRCodeWriter;
 import com.itextpdf.text.*;
 import com.itextpdf.text.pdf.*;
 import com.uni.uni.dto.StudentReceiverDto;
+import com.uni.uni.entity.Certificate;
+import com.uni.uni.repository.CertificateRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.stereotype.Service;
@@ -23,6 +25,8 @@ import java.util.Random;
 @Service
 @RequiredArgsConstructor
 public class CertificateService {
+
+    private final CertificateRepository certificateRepository;
 
     public String generateCertificate(StudentReceiverDto dto) throws IOException, DocumentException, WriterException {
         ClassPathResource resource = new ClassPathResource("Certificate.pdf");
@@ -70,15 +74,23 @@ public class CertificateService {
             fos.write(baos.toByteArray());
         }
 
-        return filePath; // Or return qrCode if you prefer
+        Certificate certificate = new Certificate();
+        certificate.setCourse(dto.course());
+        certificate.setFirstName(dto.firstName());
+        certificate.setLastName(dto.lastName());
+        certificate.setFilePath(filePath);
+        certificate.setQrId(qrCode);
+
+        certificateRepository.save(certificate);
+        return filePath;
     }
 
     private BufferedImage generateQRCodeImage(String text, int width, int height) throws WriterException {
         QRCodeWriter qrCodeWriter = new QRCodeWriter();
 
         Hashtable<EncodeHintType, Object> hints = new Hashtable<>();
-        hints.put(EncodeHintType.MARGIN, 0); // ✅ Remove white border
-        hints.put(EncodeHintType.ERROR_CORRECTION, ErrorCorrectionLevel.H); // optional: better QR resilience
+        hints.put(EncodeHintType.MARGIN, 0);
+        hints.put(EncodeHintType.ERROR_CORRECTION, ErrorCorrectionLevel.H);
 
         BitMatrix bitMatrix = qrCodeWriter.encode(text, BarcodeFormat.QR_CODE, width, height, hints);
         return MatrixToImageWriter.toBufferedImage(bitMatrix);
