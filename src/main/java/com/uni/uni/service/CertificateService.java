@@ -1,5 +1,9 @@
 package com.uni.uni.service;
 
+import com.amazonaws.services.s3.AmazonS3;
+import com.amazonaws.services.s3.model.ObjectMetadata;
+import com.amazonaws.services.s3.model.PutObjectRequest;
+import com.amazonaws.services.s3.model.S3Object;
 import com.google.zxing.BarcodeFormat;
 import com.google.zxing.WriterException;
 import com.google.zxing.client.j2se.MatrixToImageWriter;
@@ -12,6 +16,7 @@ import com.uni.uni.entity.Certificate;
 import com.uni.uni.exception.CertificateNotFoundException;
 import com.uni.uni.repository.CertificateRepository;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.stereotype.Service;
 import com.google.zxing.EncodeHintType;
@@ -25,13 +30,15 @@ import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.util.Random;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class CertificateService {
 
     private final CertificateRepository certificateRepository;
+    private final AmazonS3 s3Client;
 
-    public String generateCertificate(StudentReceiverDto dto) throws IOException, DocumentException, WriterException {
+    public Certificate generateCertificate(StudentReceiverDto dto) throws IOException, DocumentException, WriterException {
         ClassPathResource resource = new ClassPathResource("Certificate.pdf");
         PdfReader reader = new PdfReader(resource.getInputStream());
 
@@ -68,25 +75,41 @@ public class CertificateService {
         stamper.close();
         reader.close();
 
-        // 5. Save to file system
-        File outputDir = new File("D:/sertificate/");
-        if (!outputDir.exists()) outputDir.mkdirs();
+        String bucketName = "certificate-pdf"; // kerakli bucket nomi
+        String objectKey = qrCode + ".pdf";
 
-        String filePath = "D:/sertificate/" + qrCode + ".pdf";
-        try (FileOutputStream fos = new FileOutputStream(filePath)) {
-            fos.write(baos.toByteArray());
+        try {
+            byte[] pdfBytes = baos.toByteArray();
+            InputStream inputStream = new ByteArrayInputStream(pdfBytes);
+
+            ObjectMetadata metadata = new ObjectMetadata();
+            metadata.setContentType("application/pdf");
+            metadata.setContentLength(pdfBytes.length);
+
+            if (!s3Client.doesBucketExistV2(bucketName)) {
+                s3Client.createBucket(bucketName);
+            }
+
+            PutObjectRequest putObjectRequest = new PutObjectRequest(
+                    bucketName, objectKey, inputStream, metadata
+            );
+            s3Client.putObject(putObjectRequest);
+
+        } catch (Exception e) {
+            log.error("Upload to MinIO failed: {}", e.getMessage());
+            throw new RuntimeException("Failed to upload PDF to MinIO");
         }
 
         Certificate certificate = new Certificate();
         certificate.setCourse(dto.course());
         certificate.setFirstName(dto.firstName());
         certificate.setLastName(dto.lastName());
-        certificate.setFilePath(filePath);
+        certificate.setFilePath(objectKey);
         certificate.setQrId(qrCode);
         certificate.setGivenTime(LocalDateTime.now());
         certificate.setUId(0001L);
         certificateRepository.save(certificate);
-        return filePath;
+        return certificate;
     }
 
     private BufferedImage generateQRCodeImage(String text, int width, int height) throws WriterException {
@@ -111,19 +134,21 @@ public class CertificateService {
         return sb.toString();
     }
 
-
     private Image convertBufferedImageToItextImage(BufferedImage bufferedImage) throws IOException, BadElementException {
         ByteArrayOutputStream baos = new ByteArrayOutputStream();
         javax.imageio.ImageIO.write(bufferedImage, "png", baos);
         return Image.getInstance(baos.toByteArray());
     }
 
-    public Certificate getOne(String qrId){
-        Certificate certificate = certificateRepository.findByQrId(qrId);
-        if (certificate == null){
-            throw new CertificateNotFoundException("Sertificate with the id is not found");
+
+    public InputStream downloadFile(String fileKey) {
+        try {
+            S3Object s3Object = s3Client.getObject("certificate-pdf", fileKey);
+            return s3Object.getObjectContent();
+        } catch (Exception e) {
+            log.error("Error while downloading file from S3", e);
+            throw new RuntimeException("Error while downloading file from S3");
         }
-        return certificate;
     }
 
 }
