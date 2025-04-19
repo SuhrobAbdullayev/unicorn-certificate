@@ -9,12 +9,15 @@ import com.itextpdf.text.*;
 import com.itextpdf.text.pdf.*;
 import com.uni.uni.dto.StudentReceiverDto;
 import com.uni.uni.entity.Certificate;
+import com.uni.uni.exception.CertificateNotFoundException;
 import com.uni.uni.repository.CertificateRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.stereotype.Service;
 import com.google.zxing.EncodeHintType;
 import com.google.zxing.qrcode.decoder.ErrorCorrectionLevel;
+
+import java.time.LocalDateTime;
 import java.util.Hashtable;
 import java.awt.image.BufferedImage;
 import java.io.*;
@@ -54,7 +57,7 @@ public class CertificateService {
         canvas.endText();
 
         // 3. Generate QR code
-        String qrCode = generateRandomCode(5);
+        String qrCode = generateRandomCode(6);
         BufferedImage qrImage = generateQRCodeImage(qrCode, 110, 110);
         Image qr = convertBufferedImageToItextImage(qrImage);
         qr.setAbsolutePosition(650, 58);
@@ -80,7 +83,8 @@ public class CertificateService {
         certificate.setLastName(dto.lastName());
         certificate.setFilePath(filePath);
         certificate.setQrId(qrCode);
-
+        certificate.setGivenTime(LocalDateTime.now());
+        certificate.setUId(0001L);
         certificateRepository.save(certificate);
         return filePath;
     }
@@ -113,4 +117,13 @@ public class CertificateService {
         javax.imageio.ImageIO.write(bufferedImage, "png", baos);
         return Image.getInstance(baos.toByteArray());
     }
+
+    public Certificate getOne(String qrId){
+        Certificate certificate = certificateRepository.findByQrId(qrId);
+        if (certificate == null){
+            throw new CertificateNotFoundException("Sertificate with the id is not found");
+        }
+        return certificate;
+    }
+
 }
